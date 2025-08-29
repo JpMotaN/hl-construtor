@@ -1,255 +1,163 @@
-// js/engine.calcs.js — MÓDULO DA ENGINE (com exportações nomeadas)
 
-import { CATEGORIAS, AFINIDADES_PADRAO, penalidadePorAfinidade } from '../data/categorias.js';
+// js/engine.calcs.js
+// Engine de cálculos — 100% independente da UI.
+// Objetivo: somar custos de PA dos efeitos, subtrair PA de redutores/restrições
+// e fornecer utilitários para Manifestação (MH) e Técnicas.
+
+import { CATEGORIAS, AFINIDADES_PADRAO } from '../data/categorias.js';
 import { SUBCATEGORIAS } from '../data/subcategorias.js';
 import { EFEITOS }    from '../data/efeitos.js';
 import { REDUTORES }  from '../data/redutores.js';
 import { RESTRICOES } from '../data/restricoes.js';
 import { CONDICOES }  from '../data/condicoes.js';
 
-// ========================= Constantes =========================
+function num(n){ return (typeof n === 'number' && !Number.isNaN(n)) ? n : 0; }
+function clamp(n,a,b){ return Math.max(a, Math.min(b, n)); }
 
-// Limites de PA por grau (base do livro: 2 × grau para técnicas comuns; auxiliares até 10)
-export const GRAUS = {
-  1: { paMax: 2 },
-  2: { paMax: 4 },
-  3: { paMax: 6 },
-  4: { paMax: 8 },
-  5: { paMax: 10 },
-  6: { paMax: 12 },
-};
-
-// ========================= Afinidades =========================
-
-/** Retorna o mapa de afinidades padrão dado o rótulo da categoria principal */
-export function calcAutoAffinities(categoriaRotulo) {
-  // aceita tanto rótulo ("Aprimoramento") quanto id ("aprimorador")
-  const cat =
-    CATEGORIAS.find(c => c.nome === categoriaRotulo || c.id === categoriaRotulo) ||
-    CATEGORIAS[0];
-  return { ...(AFINIDADES_PADRAO[cat.id] || {}) };
+/** Constrói objeto de afinidades conforme categoria principal e/ou modo manual */
+export function buildAffinities(categoriaId, manualAff = null){
+  if (manualAff && typeof manualAff === 'object') return manualAff;
+  const map = AFINIDADES_PADRAO[categoriaId] || AFINIDADES_PADRAO['aprimorador'];
+  // cópia defensiva
+  return JSON.parse(JSON.stringify(map));
 }
 
-// ========================= Utilidades de Catálogo =========================
-
-/** Cria uma instância de efeito com _pa/_pv já avaliados para o contexto */
-export function materializeEffect(def, ctx = {}) {
-  if (!def) return null;
-  const inst = {
-    id: def.id,
-    nome: def.nome,
-    grupo: def.grupo,
-    desc: def.desc,
-    params: def.params ? JSON.parse(JSON.stringify(def.params)) : undefined,
+/** Lê custo "em PA" de um item de catálogo (efeito/restrição/redutor) com contexto */
+export function readPA(item, ctx = {}){
+  if (!item) return 0;
+  // Se for uma instância (com params próprios), preferimos item.params a ctx.params
+  const params = (item.params ?? ctx.params) || {};
+  const tecnica = item.tecnica || ctx.tecnica || null;
+  const emManifestacao = !!(ctx.emManifestacao);
+  const context = {
+    ...ctx.context,
+    condicoes: CONDICOES,
+    subcatId: ctx.subcatId,
+    affinities: ctx.affinities
   };
-  try {
-    inst._pa = typeof def.calcPA === 'function' ? Number(def.calcPA(ctx)) || 0 : 0;
-    inst._pv = typeof def.calcPV === 'function' ? Number(def.calcPV(ctx)) || 0 : 0;
-  } catch (e) {
-    console.warn('calcPA/calcPV lançou erro para efeito', def?.id, e);
-    inst._pa = 0;
-    inst._pv = 0;
+
+  // calcPA tem prioridade
+  if (typeof item.calcPA === 'function'){
+    try {
+      const v = item.calcPA({ tecnica, params, emManifestacao, context });
+      return Math.abs(num(v));
+    } catch(e){ /* silencia */ }
   }
-  return inst;
-}
-
-/** Cria uma instância de redutor com _pa/_pv já avaliados para o contexto */
-export function materializeReducer(def, ctx = {}) {
-  if (!def) return null;
-  const inst = {
-    id: def.id,
-    nome: def.nome,
-    grupo: def.grupo,
-    desc: def.desc,
-    params: def.params ? JSON.parse(JSON.stringify(def.params)) : undefined,
-  };
-  try {
-    const pa = typeof def.calcPA === 'function' ? Number(def.calcPA(ctx)) || 0 : 0;
-    const pv = typeof def.calcPV === 'function' ? Number(def.calcPV(ctx)) || 0 : 0;
-    // Redutores "diminuem" custo: guardamos _pa negativo e _pv negativo
-    inst._pa = pa ? -Math.abs(pa) : 0;
-    inst._pv = pv ? -Math.abs(pv) : 0;
-  } catch (e) {
-    console.warn('calcPA/calcPV lançou erro para redutor', def?.id, e);
-    inst._pa = 0;
-    inst._pv = 0;
+  // calcPv (fallback raro)
+  if (typeof item.calcPv === 'function'){
+    try {
+      const v = item.calcPv({ tecnica, params, emManifestacao, context });
+      return Math.abs(num(v));
+    } catch(e){ /* silencia */ }
   }
-  return inst;
-}
-
-/** Cria uma instância de restrição com _pa/_pv avaliados (para MH tipicamente gera _pa; algumas geram _pv). */
-export function materializeRestriction(def, ctx = {}) {
-  if (!def) return null;
-  const inst = {
-    id: def.id,
-    nome: def.nome,
-    stars: def.stars || 0,
-    desc: def.desc,
-    params: def.params ? JSON.parse(JSON.stringify(def.params)) : undefined,
-  };
-  try {
-    const pa = typeof def.calcPA === 'function' ? Number(def.calcPA(ctx)) || 0 : 0;
-    const pv = typeof def.calcPV === 'function' ? Number(def.calcPV(ctx)) || 0 : 0;
-    // Restrição para MH geralmente "reduz" PV disponíveis, então tratamos _pv como negativo
-    inst._pa = pa ? -Math.abs(pa) : 0;
-    inst._pv = pv ? -Math.abs(pv) : 0;
-  } catch (e) {
-    console.warn('calcPA/calcPV lançou erro para restrição', def?.id, e);
-    inst._pa = 0;
-    inst._pv = 0;
+  // campos comuns
+  for (const k of ['pa','PA','pv','PV','custo','cost','valor','value']){
+    if (k in item) return Math.abs(num(item[k]));
   }
-  return inst;
-}
-
-// ========================= Subcategorias / Limites =========================
-
-/** Retorna {comumMax, auxMax, comumExtraTreinavel, auxExtraTreinavel} para a subcategoria da MH */
-export function subcatTechniqueLimits(manifest) {
-  const s = SUBCATEGORIAS.find(x => x.id === manifest?.subcatId);
-  if (!s) return { comumMax: 0, auxMax: 0, comumExtraTreinavel: 0, auxExtraTreinavel: 0 };
-
-  const slots = s.slots || {};
-  const extra = s.treinarExtras || {};
-  return {
-    comumMax: Number(slots.comum?.base ?? slots.comum ?? 0),
-    auxMax: Number(slots.auxiliar?.base ?? slots.auxiliar ?? 0),
-    comumExtraTreinavel: Number(extra.comum ?? 0),
-    auxExtraTreinavel: Number(extra.auxiliar ?? 0),
-  };
-}
-
-/** Valida contagem de técnicas x limites da subcategoria. Retorna lista de mensagens de erro. */
-export function validateTechniqueCounts(state) {
-  const lim = subcatTechniqueLimits(state.manifest || {});
-  const comuns = (state.techs || []).filter(t => t.tipo === 'comum').length;
-  const aux = (state.techs || []).filter(t => t.tipo === 'aux').length;
-  const errs = [];
-  if (comuns > lim.comumMax) errs.push(`Excesso de técnicas Comuns: ${comuns}/${lim.comumMax}.`);
-  if (aux > lim.auxMax) errs.push(`Excesso de técnicas Auxiliares: ${aux}/${lim.auxMax}.`);
-  return errs;
-}
-
-// ========================= PV da Manifestação =========================
-
-function activationDeltaPV(ativacao) {
-  if (ativacao === 'acao-poder') return 3;
-  if (ativacao === 'acao-bonus' || ativacao === 'reacao') return 1;
   return 0;
 }
 
-/** Soma _pv de uma lista (efeitos positivos, redutores negativos, restrições negativas) */
-function sumPV(arr) { return (arr || []).reduce((a, x) => a + (Number(x?._pv) || 0), 0); }
+/** Info básica de subcategoria (limite/base) com deltas */
+export function subcatInfo(subId){
+  const s = SUBCATEGORIAS.find(x => x.id === subId);
+  let pvLimit = 8, pvBase = 3;
+  if (s && typeof s === 'object'){
+    for (const k of ['pvLimite','pv_limit','pvLimit','limite','limit','pvMax','pv_max']) {
+      if (k in s){ pvLimit = num(s[k]) || pvLimit; break; }
+    }
+    for (const k of ['pvBase','pv_base','base','pvDefault','pv_default']){
+      if (k in s){ pvBase = num(s[k]) || pvBase; break; }
+    }
+    if ('pvLimitDelta' in s)    pvLimit += num(s.pvLimitDelta);
+    if ('pvCurrentDelta' in s)  pvBase  += num(s.pvCurrentDelta);
+  }
+  return { pvLimit, pvBase };
+}
 
-/** Calcula PVs da MH e retorna estrutura para renderização. */
-export function validatePV(manifest) {
-  const sub = SUBCATEGORIAS.find(x => x.id === manifest.subcatId) || {};
-  const base0 = 3 + activationDeltaPV(manifest.ativacao);
-  const base = base0 + Number(sub.pvCurrentDelta || 0);
+/** Bônus de PV pela ativação escolhida (apenas MH) */
+export function activationBonus(mode){
+  switch(mode){
+    case 'acao-bonus':
+    case 'reacao': return 1;
+    case 'acao-poder': return 3;
+    case 'acao':
+    default: return 0;
+  }
+}
 
-  const pvEfeitos   = +sumPV(manifest.efeitos);              // normalmente >= 0
-  const pvReducao   = +sumPV(manifest.redutores) + sumPV(manifest.restricoes); // normalmente <= 0
-  const disponiveis = base + (pvReducao);                    // PV base ajustado por reduções
-  // Limite
-  let limite = 8;
-  if (typeof sub.pvLimitSetTo === 'number') limite = sub.pvLimitSetTo;
-  else if (typeof sub.pvLimitDelta === 'number') limite = base + sub.pvLimitDelta;
+/** Soma de custos dos efeitos */
+export function sumEffectsPA(efeitos, ctx={}){
+  return (efeitos||[]).reduce((acc, it) => acc + Math.max(0, readPA(it, ctx)), 0);
+}
 
-  const liquido = pvEfeitos + (pvReducao); // saldo dos itens adicionados (info)
+/** Soma de reduções (restrições + redutores) — tratadas como números positivos */
+export function sumReductionsPA(items, ctx={}){
+  return (items||[]).reduce((acc, it) => acc + Math.max(0, readPA(it, ctx)), 0);
+}
 
-  const errs = [];
-  if (pvEfeitos > limite) errs.push(`Efeitos consomem ${pvEfeitos} PV e excedem o limite da subcategoria (${limite}).`);
-  if ((pvEfeitos) > Math.max(disponiveis, 0))
-    errs.push(`Efeitos (${pvEfeitos} PV) superam os PV disponíveis (${disponiveis}). Adicione redutores/restrições ou remova efeitos.`);
+/** Calcula MH (capacidade/consumo) */
+export function calcManifestacao({ categoriaId, subcatId, activation, efeitos=[], redutores=[], restricoes=[], affinities=null }){
+  const { pvLimit, pvBase } = subcatInfo(subcatId);
+  const bonusAtiv = activationBonus(activation);
+  const aff = buildAffinities(categoriaId, affinities);
+  const ctx = { emManifestacao:true, subcatId, affinities: aff };
+
+  const gastoPV = sumEffectsPA(efeitos, ctx);
+  const ganhoPV = sumReductionsPA([...redutores, ...restricoes], ctx);
+
+  // capacidade: quanto você pode gastar em efeitos
+  const capacidade = Math.min(pvLimit, pvBase + bonusAtiv + ganhoPV);
+  const pvDisponiveis = Math.max(0, capacidade - gastoPV);
+  const saldo = gastoPV - ganhoPV;
 
   return {
-    base,
-    disponiveis,
-    limite,
-    pvDetalhe: {
-      efeitos: pvEfeitos,
-      reduzido: pvReducao,
-      liquido,
-    },
-    errs,
+    pvBase: pvBase + bonusAtiv,
+    pvLimite: pvLimit,
+    pvDisponiveis,
+    pvEmEfeitos: gastoPV,
+    pvDeReducoes: ganhoPV,
+    saldo,
+    ok: gastoPV <= capacidade,
+    capacidade
   };
 }
 
-// ========================= Custo de Técnica =========================
+/** Regras e limites por grau (máx de PA final) */
+export const GRAUS = {1:{paMax:2},2:{paMax:4},3:{paMax:6},4:{paMax:8},5:{paMax:10},6:{paMax:12}};
 
-/**
- * Calcula o custo de uma técnica:
- * - base: efeitos + redutores (redução limitada ao "cap" do grau/tipo)
- * - extra: penalidade por afinidades das categorias marcadas
- * - total: base + extra (∞ se alguma categoria for 0%)
- */
-export function costTechnique(tecnica, afinidades, starsMitig = 0) {
-  // Soma de PA
-  const somaEfeitos = (tecnica.efeitos || []).reduce((a, e) => a + (Number(e?._pa) || 0), 0);
-  const somaRed     = (tecnica.redutores || []).reduce((a, r) => a + (Number(r?._pa) || 0), 0); // negativo
+/** Calcula uma técnica (custo final de PA) */
+export function calcTecnica({ tipo='comum', grau=1, efeitos=[], redutores=[], restricoes=[] }){
+  const g = clamp(parseInt(grau||1,10), 1, 6);
+  const paMax = GRAUS[g].paMax;
+  const ctx = { emManifestacao:false };
 
-  // Redução máxima permitida
-  const cap = tecnica.tipo === 'aux' ? 10 : (GRAUS[tecnica.grau]?.paMax ?? 2);
-  const reducaoPermitida = Math.max(somaRed, -cap); // somaRed é negativo; limita pelo -cap
-  const base = Math.max(1, somaEfeitos + reducaoPermitida);
+  const paEfeitos = sumEffectsPA(efeitos.map(e => ({...e, tecnica:{tipo,grau:g}})), ctx);
+  const paReduc   = sumReductionsPA([...redutores, ...restricoes].map(r => ({...r, tecnica:{tipo,grau:g}})), ctx);
+  const total = Math.max(0, paEfeitos - paReduc);
 
-  // Penalidade por afinidades
-  let extra = 0;
-  for (const ent of (tecnica.categorias || [])) {
-    const rot = ent.categoria || ent.id;
-    const perc = (afinidades && (afinidades[rot] ?? afinidades[rot?.toLowerCase?.()] ?? afinidades[rot?.toUpperCase?.()])) ?? 0;
-    const pen = penalidadePorAfinidade(perc);
-    if (pen === Infinity) { extra = Infinity; break; }
-    extra += pen;
-  }
-
-  // Mitigação por ★ das restrições da MH
-  if (extra !== Infinity && starsMitig > 0) {
-    extra = Math.max(0, extra - Number(starsMitig || 0));
-  }
-
-  return { base, extra, total: extra === Infinity ? Infinity : base + extra };
-}
-
-// ========================= Checagem de requisitos simples =========================
-
-/** Valida requisitos triviais dos itens adicionados (ex.: aplica em manifestacao, etc.). Retorna mensagens. */
-export function checarRequisitosEfeitosRedutores(manifest) {
-  const msgs = [];
-  const sub = SUBCATEGORIAS.find(x => x.id === manifest.subcatId);
-
-  for (const e of (manifest.efeitos || [])) {
-    if (e && e.aplica && Array.isArray(e.aplica) && !e.aplica.includes('manifestacao')) {
-      msgs.push(`Efeito “${e.nome}” não se aplica a Manifestação.`);
-    }
-  }
-  for (const r of (manifest.redutores || [])) {
-    if (r && r.aplica && Array.isArray(r.aplica) && !r.aplica.includes('manifestacao')) {
-      msgs.push(`Redutor “${r.nome}” não se aplica a Manifestação.`);
-    }
-  }
-
-  // Exemplo de validação contextual simples
-  if (sub?.id === 'defensivo') {
-    const temDano = (manifest.efeitos || []).some(e => /dano/i.test(e?.nome || ''));
-    if (temDano) msgs.push('Subcategoria Defensivo: evite efeitos de dano direto na Manifestação.');
-  }
-
-  return msgs;
-}
-
-// ========================= Export opcional no window (sem "E" solto) =========================
-// (Isto evita o erro "E is not defined" caso alguém consulte window.Engine para debug.)
-if (typeof window !== 'undefined') {
-  window.Engine = {
-    GRAUS,
-    calcAutoAffinities,
-    materializeEffect,
-    materializeReducer,
-    materializeRestriction,
-    subcatTechniqueLimits,
-    validateTechniqueCounts,
-    validatePV,
-    costTechnique,
-    checarRequisitosEfeitosRedutores,
+  return {
+    grau: g,
+    tipo,
+    paEfeitos,
+    paReduc,
+    total,
+    paMax,
+    ok: total >= 1 && total <= paMax
   };
+}
+
+/** Exposição para depuração em window.Engine */
+export const Catalog = {
+  categorias: () => CATEGORIAS,
+  subcats: () => SUBCATEGORIAS,
+  efeitos: () => EFEITOS,
+  redutores: () => REDUTORES,
+  restricoes: () => RESTRICOES,
+  condicoes: () => CONDICOES
+};
+
+// debug helpers no browser
+if (typeof window !== 'undefined'){
+  window.Engine = { buildAffinities, readPA, subcatInfo, activationBonus, sumEffectsPA, sumReductionsPA, calcManifestacao, calcTecnica, Catalog, GRAUS };
+  window.CATALOG = { CATEGORIAS, SUBCATEGORIAS, EFEITOS, REDUTORES, RESTRICOES, CONDICOES };
 }
