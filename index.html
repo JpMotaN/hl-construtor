@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Hunter Legacy — Construtor</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="container">
+
+    <h1>Hunter Legacy — Construtor</h1>
+    <p class="muted">
+      Monte sua Manifestação de Habilidade (Hatsu) e crie técnicas com cálculo automático de PV/PA,
+      afinidades e limites por subcategoria.
+    </p>
+
+    <!-- ===================== 1) CATEGORIA & AFINIDADES ===================== -->
+    <section class="card">
+      <h2>1) Categoria Principal &amp; Afinidades</h2>
+
+      <div id="catRadios" class="chip-row mt6"></div>
+
+      <div class="row mt12">
+        <label class="chip">
+          <input type="radio" name="affMode" value="auto" checked />
+          Automático
+        </label>
+        <label class="chip">
+          <input type="radio" name="affMode" value="manual" />
+          Manual
+        </label>
+        <div class="muted ml8">No modo automático, as afinidades seguem a categoria escolhida.</div>
+      </div>
+
+      <div id="affinityEditor" class="mt12 hidden">
+        <div id="affinityGrid" class="grid g3"></div>
+      </div>
+    </section>
+
+    <!-- ===================== 2) MANIFESTAÇÃO DE HABILIDADE ===================== -->
+    <section class="card">
+      <h2>2) Manifestação de Habilidade</h2>
+
+      <div class="grid g4">
+        <div>
+          <label class="lbl">Nome da Manifestação</label>
+          <input id="mhName" placeholder="Ex.: Contrato das Correntes" />
+        </div>
+
+        <div>
+          <label class="lbl">Subcategoria</label>
+          <select id="subcatSelect"></select>
+          <div id="limitesTech" class="muted mt4"></div>
+        </div>
+
+        <div>
+          <label class="lbl">Ativação</label>
+          <select id="manifestActivation">
+            <option value="acao">Ação</option>
+            <option value="acao-bonus">Ação Bônus (+1 PV base)</option>
+            <option value="reacao">Reação (+1 PV base)</option>
+            <option value="acao-poder" selected>Ação de Poder (+3 PV base)</option>
+          </select>
+        </div>
+
+        <div class="mt24">
+          <button id="mhSaveBtn" class="btn">Salvar como nova MH</button>
+        </div>
+      </div>
+
+      <div id="subcatInfo" class="muted mt8"></div>
+
+      <!-- Painéis de PV -->
+      <div class="grid g3 mt12">
+        <div class="panel">
+          <div class="muted">PV base</div>
+          <div class="metric" id="pvBase">—</div>
+        </div>
+        <div class="panel">
+          <div class="muted">PV disponíveis</div>
+          <div class="metric" id="pvAtuais">—</div>
+        </div>
+        <div class="panel">
+          <div class="muted">PV limite</div>
+          <div class="metric" id="pvLimite">—</div>
+        </div>
+      </div>
+
+      <div class="grid g3 mt8">
+        <div class="panel thin">
+          <div class="muted">PV em Efeitos:</div>
+          <div class="metric s" id="pvEfeitosMH">0</div>
+        </div>
+        <div class="panel thin">
+          <div class="muted">PV por Reduções/Restrições:</div>
+          <div class="metric s" id="pvReduzidoMH">0</div>
+        </div>
+        <div class="panel thin">
+          <div class="muted">Saldo (efeitos − reduções):</div>
+          <div class="metric s" id="pvLiquidoMH">0</div>
+        </div>
+      </div>
+
+      <!-- Restrições / Efeitos / Redutores -->
+      <div class="grid g3 mt16">
+        <!-- Restrições -->
+        <div>
+          <label class="lbl">Adicionar Restrição (★)</label>
+          <div class="grid g2">
+            <select id="restricaoPicker"></select>
+            <button class="btn" id="addRestricao">Adicionar</button>
+          </div>
+          <div class="muted mt6">Mitigação por ★:
+            <b id="totalStars">0</b> ★ = <b id="affMit">0 PA</b>
+          </div>
+          <div id="restricoesLista" class="tag-list mt6"></div>
+        </div>
+
+        <!-- Efeitos -->
+        <div>
+          <label class="lbl">Grupo de Efeitos</label>
+          <select id="efeitoGroup"></select>
+
+          <label class="lbl mt6">Efeito</label>
+          <div class="grid g2">
+            <select id="efeitoPicker"></select>
+            <button class="btn" id="addEfeito">Adicionar</button>
+          </div>
+          <div class="muted mt4">Prévia de custo: <b id="efeitoPreview">—</b></div>
+
+          <div id="efeitosMH" class="tag-list mt6"></div>
+        </div>
+
+        <!-- Redutores -->
+        <div>
+          <label class="lbl">Adicionar Redutor (MH)</label>
+          <div class="grid g2">
+            <select id="redutorPicker"></select>
+            <button class="btn" id="addRedutor">Adicionar</button>
+          </div>
+          <div id="redutoresMH" class="tag-list mt6"></div>
+        </div>
+      </div>
+
+      <div id="pvWarn" class="muted mt8"></div>
+
+      <h3 class="mt16">Descrição dos itens da Manifestação</h3>
+      <div class="panel" id="mhDesc">
+        <!-- As descrições dos efeitos/restrições adicionados aparecem junto às tags na lista acima -->
+        <!-- (Mantido este bloco para futuras melhorias se você quiser consolidar tudo aqui) -->
+      </div>
+    </section>
+
+    <!-- ===================== 3) TÉCNICAS ===================== -->
+    <section class="card">
+      <h2>3) Técnicas</h2>
+
+      <div class="grid g4">
+        <div>
+          <label class="lbl">Tipo</label>
+          <select id="techType">
+            <option value="comum">Comum</option>
+            <option value="aux">Auxiliar</option>
+          </select>
+        </div>
+        <div>
+          <label class="lbl">Grau</label>
+          <select id="techGrau">
+            <option value="1">1º</option>
+            <option value="2">2º</option>
+            <option value="3">3º</option>
+            <option value="4">4º</option>
+            <option value="5">5º</option>
+            <option value="6">6º</option>
+          </select>
+        </div>
+        <div>
+          <label class="lbl">Nome da técnica</label>
+          <input id="techNome" placeholder="Ex.: Giro Perfurante" />
+        </div>
+        <div class="mt24">
+          <button class="btn" id="addTech">Criar técnica</button>
+        </div>
+      </div>
+
+      <div class="muted mt8" id="techLimitsInfo"></div>
+      <div class="muted">Comuns: <b id="countComum">0</b> · Auxiliares: <b id="countAux">0</b></div>
+
+      <div id="techList" class="mt12"></div>
+    </section>
+
+    <!-- ===================== 4) EXPORTAR / IMPORTAR ===================== -->
+    <section class="card">
+      <h2>4) Salvar &amp; Carregar</h2>
+      <div class="grid g2">
+        <button id="exportBtn" class="btn">Exportar (JSON)</button>
+        <label class="btn ghost">
+          Importar (JSON)
+          <input id="importFile" type="file" accept="application/json" hidden />
+        </label>
+      </div>
+    </section>
+
+  </main>
+
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>
+
+<!-- TESTE-UNICO-123 -->

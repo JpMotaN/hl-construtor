@@ -1,0 +1,17 @@
+export const SUBCATEGORIAS = [
+  { id: 'ofensivo', nome: 'Ofensivo', pvLimitSetTo: 10, pvCurrentDelta: 0, slots: { comum:{base:7}, auxiliar:{base:3} }, treinarExtras:{comum:Infinity, auxiliar:0}, notas:['Foco em técnicas que causam dano.'] },
+  { id: 'defensivo', nome: 'Defensivo', pvLimitDelta: 3, pvCurrentDelta: 0, slots: { comum:{base:1}, auxiliar:{base:3} }, treinarExtras:{comum:2, auxiliar:0}, notas:['Técnicas não causam dano direto.'] },
+  { id: 'suporte', nome: 'Suporte', pvLimitDelta: 2, pvCurrentDelta: 0, slots: { comum:{base:1}, auxiliar:{base:5} }, treinarExtras:{comum:3, auxiliar:0} },
+  { id: 'colaborativo', nome: 'Colaborativo', pvLimitDelta: 4, pvCurrentDelta: 4, slots:{comum:{base:2}, auxiliar:{base:2}} },
+  { id: 'exorcismo', nome: 'Exorcismo', pvLimitIgualRestricoes: true, pvCurrentDelta: 2, slots:{comum:{base:2}, auxiliar:{base:2}}, notas:['Limite de PV igual ao total em restrições.'] },
+  { id: 'contratual', nome: 'Contratual', pvLimitIgualRestricoes: true, slots:{auxiliar:{base:2}}, notas:['Exige diversas restrições.'] },
+  { id: 'sensorial', nome: 'Sensorial', pvLimitDelta: 3, pvCurrentDelta: 2, slots:{comum:{base:2}, auxiliar:{base:3}} },
+  { id: 'condicional', nome: 'Condicional', pvLimitDelta: 2, slots:{comum:{base:2}, auxiliar:{base:2}} },
+  { id: 'composto', nome: 'Composto', pvLimitDelta: 2, pvCurrentDelta: 2, slots:{comum:{base:0}, auxiliar:{base:5}} },
+  { id: 'criacao', nome: 'Criação', pvLimitDelta: 3, pvCurrentDelta: 1, slots:{comum:{base:2}, auxiliar:{base:2}} },
+  { id: 'besta_de_nen', nome: 'Besta de Nen', pvLimitDelta: 2, pvCurrentDelta: 2, slots:{comum:{base:2}, auxiliar:{base:2}} },
+  { id: 'roubo', nome: 'Roubo', pvLimitFlexPorEfeito:true, slots:{auxiliar:{base:0}} },
+  { id: 'roubo_temporario', nome: 'Roubo Temporário', pvLimitFlexPorEfeito:true, slots:{auxiliar:{base:2}} },
+  { id: 'mina_terrestre', nome: 'Mina Terrestre', pvLimitDelta: 1, pvCurrentDelta: 1, slots:{comum:{base:2}, auxiliar:{base:2}} },
+  { id: 'especializado', nome: 'Especializado', pvLimitDelta: 2, slots:{comum:{base:2}, auxiliar:{base:2}} },
+];
