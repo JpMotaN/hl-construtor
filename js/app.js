@@ -1,298 +1,468 @@
-// js/app.js — App principal (usar com <script type="module" src="./js/app.js">)
 
-import { CATEGORIAS }      from '../data/categorias.js';
-import { SUBCATEGORIAS }   from '../data/subcategorias.js';
-import { EFEITOS }         from '../data/efeitos.js';
-import { REDUTORES }       from '../data/redutores.js';
-import { RESTRICOES }      from '../data/restricoes.js';
-import * as E              from './engine.calcs.js';
+// js/app.js — UI completa para MH e Técnicas
+import { CATEGORIAS }   from '../data/categorias.js';
+import { SUBCATEGORIAS } from '../data/subcategorias.js';
+import { EFEITOS }      from '../data/efeitos.js';
+import { REDUTORES }    from '../data/redutores.js';
+import { RESTRICOES }   from '../data/restricoes.js';
+import { CONDICOES }    from '../data/condicoes.js';
+import { calcManifestacao, calcTecnica, activationBonus, Catalog, readPA, buildAffinities, GRAUS } from './engine.calcs.js';
 
-console.log('app.js carregado', { CATEGORIAS, SUBCATEGORIAS });
+// helpers
+const $  = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+const el = (tag, cls=null) => { const n = document.createElement(tag); if (cls) n.className=cls; return n; };
+const uid = () => Math.random().toString(36).slice(2,9);
+const clamp = (n,a,b)=>Math.max(a,Math.min(b,n));
 
-// ====================== DOM ======================
-const catRadios           = document.getElementById('catRadios');
-const affinityEditor      = document.getElementById('affinityEditor');
-const affinityGrid        = document.getElementById('affinityGrid');
+function option(v, t){ const o=document.createElement('option'); o.value=v; o.textContent=t; return o; }
 
-const mhName              = document.getElementById('mhName');
-const subcatSelect        = document.getElementById('subcatSelect');
-const limitesTech         = document.getElementById('limitesTech');
-const manifestActivation  = document.getElementById('manifestActivation');
-const mhSaveBtn           = document.getElementById('mhSaveBtn');
-
-const pvBaseEl            = document.getElementById('pvBase');
-const pvAtuaisEl          = document.getElementById('pvAtuais');
-const pvLimiteEl          = document.getElementById('pvLimite');
-const pvEfeitosMH         = document.getElementById('pvEfeitosMH');
-const pvReduzidoMH        = document.getElementById('pvReduzidoMH');
-const pvLiquidoMH         = document.getElementById('pvLiquidoMH');
-const pvWarn              = document.getElementById('pvWarn');
-
-const restricaoPicker     = document.getElementById('restricaoPicker');
-const addRestricaoBtn     = document.getElementById('addRestricao');
-const restricoesLista     = document.getElementById('restricoesLista');
-const totalStars          = document.getElementById('totalStars');
-const affMit              = document.getElementById('affMit');
-
-const efeitoGroup         = document.getElementById('efeitoGroup');
-const efeitoPicker        = document.getElementById('efeitoPicker');
-const efeitoPreview       = document.getElementById('efeitoPreview');
-const addEfeitoBtn        = document.getElementById('addEfeito');
-const efeitosMH           = document.getElementById('efeitosMH');
-
-const redutorPicker       = document.getElementById('redutorPicker');
-const addRedutorBtn       = document.getElementById('addRedutor');
-const redutoresMH         = document.getElementById('redutoresMH');
-
-const mhDesc              = document.getElementById('mhDesc');
-
-// ====================== STATE ======================
+// estado global
 const state = {
-  affinitiesMode: 'auto',
-  categoriaAtual: 'Aprimoramento',
-  affinities: E.calcAutoAffinities('Aprimoramento'),
-  manifest: {
-    nome: '',
-    subcatId: SUBCATEGORIAS[0]?.id || '',
-    ativacao: 'acao-poder',
-    efeitos: [],
-    redutores: [],
-    restricoes: []
-  },
-  techs: [],
-  mhs: [] // lista para salvar múltiplas MHs (futuro)
+  categoriaId: CATEGORIAS[0]?.id ?? 'aprimorador',
+  affMode: 'auto',          // auto | manual
+  affinities: null,         // quando manual
+  subcatId: SUBCATEGORIAS[0]?.id ?? 'ofensivo',
+  activation: 'acao-poder', // para MH
+  efeitos: [], redutores: [], restricoes: [], // da MH
+  tecnicas: [],
 };
 
-// ====================== INIT ======================
-initCategories();
-initAffinityMode();
-initSubcats();
-initPickers();
-renderAll();
+// ==== Montagem inicial ====
 
-function initCategories() {
-  catRadios.innerHTML = CATEGORIAS.map(c => `
-    <label class="chip">
-      <input type="radio" name="mainCat" value="${c.nome}"
-        ${c.nome === state.categoriaAtual ? 'checked' : ''} />
-      ${c.nome}
-    </label>
-  `).join('');
-
-  catRadios.addEventListener('change', (e) => {
-    if (e.target.name === 'mainCat') {
-      state.categoriaAtual = e.target.value;
-      if (state.affinitiesMode === 'auto') {
-        state.affinities = E.calcAutoAffinities(state.categoriaAtual);
-      }
-      renderAll();
-    }
-  });
+function mountResRedPickers(){
+  const rSel = $('#restricaoPicker'); rSel.innerHTML='';
+  RESTRICOES.forEach(r => rSel.append(option(r.id, r.nome||r.name)));
+  const dSel = $('#redutorPicker'); dSel.innerHTML='';
+  REDUTORES.forEach(d => dSel.append(option(d.id, d.nome||d.name)));
 }
 
-function initAffinityMode() {
-  document.querySelectorAll('input[name="affMode"]').forEach(r => {
-    r.addEventListener('change', () => {
-      state.affinitiesMode = document.querySelector('input[name="affMode"]:checked').value;
-      affinityEditor.classList.toggle('hidden', state.affinitiesMode !== 'manual');
-      if (state.affinitiesMode === 'auto') {
-        state.affinities = E.calcAutoAffinities(state.categoriaAtual);
-      }
-      renderAll();
-    });
-  });
-}
-
-function renderAffinityEditor() {
-  affinityGrid.innerHTML = CATEGORIAS.map(c => {
-    return `
-      <div>
-        <label class="lbl">${c.nome}</label>
-        <input type="number" min="0" max="100" step="20" value="${state.affinities[c.nome] || 0}" data-cat="${c.nome}" />
-      </div>
-    `;
-  }).join('');
-
-  affinityGrid.querySelectorAll('input').forEach(inp => {
-    inp.addEventListener('input', () => {
-      const cat = inp.dataset.cat;
-      let v = parseInt(inp.value || '0', 10);
-      v = Math.max(0, Math.min(100, v));
-      state.affinities[cat] = v;
-      renderAll();
-    });
-  });
-}
-
-function initSubcats() {
-  subcatSelect.innerHTML = SUBCATEGORIAS.map(s => `<option value="${s.id}">${s.nome}</option>`).join('');
-  if (!state.manifest.subcatId) {
-    state.manifest.subcatId = SUBCATEGORIAS[0]?.id || '';
+function mountCategorias(){
+  const wrap = $('#catRadios');
+  wrap.innerHTML = '';
+  for (const c of CATEGORIAS){
+    const lbl = el('label','chip');
+    const inp = el('input');
+    inp.type = 'radio'; inp.name = 'categoria'; inp.value = c.id;
+    if (c.id === state.categoriaId) inp.checked = true;
+    const txt = document.createTextNode(' ' + (c.nome||c.id));
+    lbl.append(inp, txt);
+    inp.addEventListener('change', () => { state.categoriaId = c.id; recalcMH(); });
+    wrap.append(lbl);
   }
-  subcatSelect.value = state.manifest.subcatId;
-  subcatSelect.addEventListener('change', () => {
-    state.manifest.subcatId = subcatSelect.value;
-    renderAll();
-  });
-
-  manifestActivation.addEventListener('change', () => {
-    state.manifest.ativacao = manifestActivation.value;
-    renderAll();
-  });
-
-  mhSaveBtn.addEventListener('click', () => {
-    const nome = (mhName.value || '').trim();
-    if (!nome) {
-      alert('Dê um nome para a Manifestação.');
-      return;
-    }
-    const snap = JSON.parse(JSON.stringify({ ...state.manifest, nome }));
-    state.mhs.push(snap);
-    alert(`Manifestação "${nome}" salva.`);
-  });
 }
 
-function initPickers() {
-  // Restrições
-  restricaoPicker.innerHTML = RESTRICOES
-    .map(r => `<option value="${r.id}">${r.nome}${r.stars ? ' ' + '★'.repeat(r.stars) : ''}</option>`)
-    .join('');
-  addRestricaoBtn.addEventListener('click', () => {
-    const id = restricaoPicker.value;
-    const def = RESTRICOES.find(r => r.id === id);
-    const inst = E.materializeRestriction(def, { context: 'manifestacao' });
-    state.manifest.restricoes.push(inst);
-    renderAll();
-  });
-
-  // Grupos de efeitos
-  const grupos = Array.from(new Set(EFEITOS.map(e => e.grupo).filter(Boolean))).sort();
-  efeitoGroup.innerHTML = `<option value="">(todos)</option>` + grupos.map(g => `<option>${g}</option>`).join('');
-  efeitoGroup.addEventListener('change', renderEfeitoOptions);
-
-  // Efeitos
-  renderEfeitoOptions();
-  efeitoPicker.addEventListener('change', updateEfeitoPreview);
-  addEfeitoBtn.addEventListener('click', () => {
-    const id = efeitoPicker.value;
-    const def = EFEITOS.find(e => e.id === id);
-    const inst = E.materializeEffect(def, { context: 'manifestacao' });
-    state.manifest.efeitos.push(inst);
-    renderAll();
-  });
-
-  // Redutores
-  redutorPicker.innerHTML = REDUTORES
-    .filter(r => !r.aplica || r.aplica.includes('manifestacao'))
-    .map(r => `<option value="${r.id}">${r.nome}</option>`)
-    .join('');
-  addRedutorBtn.addEventListener('click', () => {
-    const id = redutorPicker.value;
-    const def = REDUTORES.find(r => r.id === id);
-    const inst = E.materializeReducer(def, { context: 'manifestacao' });
-    state.manifest.redutores.push(inst);
-    renderAll();
-  });
+function mountSubcats(){
+  const sel = $('#subcatSelect');
+  sel.innerHTML = '';
+  for (const s of SUBCATEGORIAS) sel.append(option(s.id, s.nome || s.id));
+  sel.value = state.subcatId;
+  sel.addEventListener('change', e => { state.subcatId = e.target.value; recalcMH(); });
 }
 
-function renderEfeitoOptions() {
-  const group = efeitoGroup.value;
-  const list = EFEITOS
-    .filter(e => !e.aplica || e.aplica.includes('manifestacao'))
-    .filter(e => !group || e.grupo === group);
+function mountEffectGroup(){
+  const grupos = Array.from(new Set(EFEITOS.map(e => e.grupo || e.group || 'outros')));
+  const gSel = $('#efeitoGroup'); gSel.innerHTML = '';
+  gSel.append(option('', '(todos)'));
+  for (const g of grupos) gSel.append(option(g,g));
+  gSel.addEventListener('change', fillEffectPicker);
+  fillEffectPicker();
+}
 
-  efeitoPicker.innerHTML = list.map(e => `<option value="${e.id}">${e.nome}</option>`).join('');
+function fillEffectPicker(){
+  const group = $('#efeitoGroup').value;
+  const effSel = $('#efeitoPicker'); effSel.innerHTML = '';
+  const list = group ? EFEITOS.filter(e => (e.grupo||e.group) === group) : EFEITOS;
+  for (const e of list) effSel.append(option(e.id, `[${e.grupo||e.group||'—'}] ${e.nome||e.name}`));
   updateEfeitoPreview();
 }
 
-function updateEfeitoPreview() {
-  const id = efeitoPicker.value;
-  const def = EFEITOS.find(e => e.id === id);
-  if (!def) { efeitoPreview.textContent = '—'; return; }
-  const inst = E.materializeEffect(def, { context: 'manifestacao' });
-  const pv = Number(inst._pv || 0);
-  efeitoPreview.textContent = (pv >= 0 ? '+' : '') + pv + ' PV';
+function defaultParamsFromSpec(paramsSpec){
+  const p = {};
+  for (const f of (paramsSpec||[])){
+    if ('default' in f) p[f.key] = f.default;
+    else if (f.type === 'int') p[f.key] = 0;
+    else if (f.type === 'bool') p[f.key] = false;
+    else if (f.type === 'select') p[f.key] = (f.options&&f.options[0]) || '';
+  }
+  return p;
 }
 
-// ====================== RENDERERS ======================
-function renderPV() {
-  state.manifest.nome = (mhName.value || '').trim();
-  const calc = E.validatePV(state.manifest);
-
-  pvBaseEl.textContent   = calc.base;
-  pvAtuaisEl.textContent = calc.disponiveis;
-  pvLimiteEl.textContent = calc.limite;
-
-  pvEfeitosMH.textContent  = calc.pvDetalhe.efeitos;
-  pvReduzidoMH.textContent = calc.pvDetalhe.reduzido;
-  pvLiquidoMH.textContent  = calc.pvDetalhe.liquido;
-
-  pvWarn.className = 'muted ' + (calc.errs.length ? 'bad' : '');
-  pvWarn.textContent = calc.errs.join(' ');
+function updateEfeitoPreview(){
+  const id = $('#efeitoPicker').value;
+  const eff = EFEITOS.find(x => x.id===id);
+  if (!eff){ $('#efeitoPreview').textContent = '—'; return; }
+  const params = defaultParamsFromSpec(eff.paramsSpec);
+  const pa = readPA({ ...eff, params, tecnica:{grau:1,tipo:'comum'} }, { emManifestacao:true, subcatId: state.subcatId, affinities: buildAffinities(state.categoriaId) });
+  $('#efeitoPreview').textContent = `${pa} PA`;
 }
 
-function renderSubcatInfo() {
-  const lim = E.subcatTechniqueLimits(state.manifest);
-  limitesTech.textContent =
-    `Comuns: até ${lim.comumMax}` +
-    (lim.comumExtraTreinavel ? ` (treináveis +${lim.comumExtraTreinavel})` : '') +
-    ` · Auxiliares: até ${lim.auxMax}` +
-    (lim.auxExtraTreinavel ? ` (treináveis +${lim.auxExtraTreinavel})` : '');
+// ==== Tags com editor de parâmetros ====
+function makeParamEditor(item, onChange){
+  if (!item.paramsSpec || !item.paramsSpec.length) return null;
+  const box = el('div','preview'); // caixinha simples
+  const form = el('div','grid g2');
+  const inputs = {};
+  for (const f of item.paramsSpec){
+    const wrap = el('div');
+    const lab = el('label','lbl'); lab.textContent = f.label || f.key;
+    let input;
+    if (f.type === 'int'){
+      input = el('input'); input.type='number';
+      if ('min' in f) input.min = f.min;
+      if ('max' in f) input.max = f.max;
+      if ('step' in f) input.step = f.step;
+      input.value = String(item.params?.[f.key] ?? f.default ?? 0);
+    } else if (f.type === 'bool'){
+      input = el('input'); input.type='checkbox';
+      input.checked = !!(item.params?.[f.key] ?? f.default ?? false);
+    } else if (f.type === 'select'){
+      input = el('select');
+      for (const opt of (f.options||[])) input.append(option(opt,opt));
+      input.value = String(item.params?.[f.key] ?? f.default ?? '');
+    } else {
+      input = el('input'); input.value = String(item.params?.[f.key] ?? '');
+    }
+    input.addEventListener('input', () => {
+      if (f.type === 'bool') item.params[f.key] = input.checked;
+      else if (f.type === 'int') item.params[f.key] = parseInt(input.value||'0',10);
+      else item.params[f.key] = input.value;
+      onChange && onChange();
+    });
+    wrap.append(lab,input);
+    form.append(wrap);
+    inputs[f.key]=input;
+  }
+  box.append(form);
+  return box;
 }
 
-function renderRestricoes() {
-  const stars = (state.manifest.restricoes || []).reduce((a, r) => a + (r.stars || 0), 0);
-  totalStars.textContent = stars;
-  affMit.textContent = `${stars} PA`;
+function addRemovableTag(container, item, ctx, onRemove){
+  const tag = el('div','tag');
+  const name = el('span'); name.textContent = item.nome || item.name || item.id;
+  const pv = el('span','pv'); pv.textContent = '…';
+  const btnX = el('button','x'); btnX.textContent = '×'; btnX.setAttribute('aria-label','remover');
 
-  restricoesLista.innerHTML = (state.manifest.restricoes || []).map((r, i) => `
-    <div class="tag">
-      <div><b>${r.nome}</b> ${r.stars ? '· ' + '★'.repeat(r.stars) : ''}</div>
-      ${typeof r._pv === 'number' ? `<div class="ok">${r._pv} PV</div>` : ''}
-      <div class="x" data-k="restricoes" data-i="${i}">×</div>
-    </div>
-  `).join('');
+  // inicializa params e calcula
+  if (!item.params) item.params = defaultParamsFromSpec(item.paramsSpec);
+  const recalcTag = () => {
+    const pa = readPA(item, ctx);
+    pv.textContent = `${pa} PA`;
+    // propagate totals
+    recalcMH();
+    recalcTodasTecnicas();
+  };
 
-  restricoesLista.querySelectorAll('.x').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const i = +btn.dataset.i;
-      state.manifest.restricoes.splice(i, 1);
-      renderAll();
+  // editor (se houver)
+  const editor = makeParamEditor(item, recalcTag);
+  if (editor){
+    const detailsBtn = el('button','btn outline'); detailsBtn.textContent = 'Ajustar';
+    detailsBtn.style.marginLeft = '6px';
+    detailsBtn.addEventListener('click', () => {
+      if (editor.isConnected) editor.remove(); else tag.after(editor);
+    });
+    tag.append(detailsBtn);
+  }
+
+  btnX.addEventListener('click', () => { tag.remove(); onRemove && onRemove(); recalcTag(); });
+
+  tag.prepend(name);
+  tag.append(pv, btnX);
+  container.append(tag);
+  // primeira atualização
+  recalcTag();
+}
+
+// ==== Seção MH ====
+function bindMH(){
+  // afinidades: alternância auto/manual (editor simples)
+  $$('input[name="affMode"]').forEach(inp => {
+    inp.addEventListener('change', e => {
+      state.affMode = e.target.value;
+      $('#affinityEditor').classList.toggle('hidden', state.affMode!=='manual');
+      if (state.affMode==='manual'){
+        // monta grid de sliders (6 categorias)
+        const grid = $('#affinityGrid'); grid.innerHTML='';
+        const base = buildAffinities(state.categoriaId);
+        state.affinities = {...base};
+        Object.keys(base).forEach(cat => {
+          const cell = el('div','stat-bar');
+          const lab = el('div','muted'); lab.textContent = cat;
+          const input = el('input'); input.type='range'; input.min='0'; input.max='100'; input.step='20';
+          input.value = base[cat];
+          const out = el('div'); out.textContent = base[cat] + '%';
+          input.addEventListener('input', () => { state.affinities[cat]=parseInt(input.value,10); out.textContent=input.value+'%'; recalcMH(); });
+          cell.append(lab, input, out);
+          grid.append(cell);
+        });
+      } else {
+        state.affinities = null;
+      }
+      recalcMH();
+    });
+  });
+
+  $('#manifestActivation').addEventListener('change', e => { state.activation = e.target.value; recalcMH(); });
+
+  $('#addEfeito').addEventListener('click', () => {
+    const id = $('#efeitoPicker').value;
+    const eff = EFEITOS.find(x => x.id==id);
+    if (!eff) return;
+    state.efeitos.push({...eff, id: eff.id, params: defaultParamsFromSpec(eff.paramsSpec)});
+    addRemovableTag($('#efeitosMH'), state.efeitos[state.efeitos.length-1], { emManifestacao:true, subcatId: state.subcatId, affinities: buildAffinities(state.categoriaId, state.affinities) }, () => {
+      const idx = state.efeitos.findIndex(x => x===eff); if (idx>=0) state.efeitos.splice(idx,1);
+    });
+  });
+
+  $('#addRestricao').addEventListener('click', () => {
+    const id = $('#restricaoPicker').value;
+    const r = RESTRICOES.find(x => x.id==id);
+    if (!r) return;
+    state.restricoes.push({...r, params: defaultParamsFromSpec(r.paramsSpec)});
+    addRemovableTag($('#restricoesLista'), state.restricoes[state.restricoes.length-1], { emManifestacao:true, subcatId: state.subcatId }, () => {
+      const idx = state.restricoes.findIndex(x => x.id===id); if (idx>=0) state.restricoes.splice(idx,1);
+    });
+  });
+
+  $('#addRedutor').addEventListener('click', () => {
+    const id = $('#redutorPicker').value;
+    const r = REDUTORES.find(x => x.id==id);
+    if (!r) return;
+    state.redutores.push({...r, params: defaultParamsFromSpec(r.paramsSpec)});
+    addRemovableTag($('#redutoresMH'), state.redutores[state.redutores.length-1], { emManifestacao:true, subcatId: state.subcatId }, () => {
+      const idx = state.redutores.findIndex(x => x.id===id); if (idx>=0) state.redutores.splice(idx,1);
     });
   });
 }
 
-function renderEffRedLists() {
-  efeitosMH.innerHTML = (state.manifest.efeitos || []).map((e, i) => `
-    <div class="tag">
-      <div><b>${e.nome}</b></div>
-      ${typeof e._pv === 'number' ? `<div class="warn">+${e._pv} PV</div>` : ''}
-      <div class="x" data-k="efeitos" data-i="${i}">×</div>
-    </div>
-  `).join('');
+function recalcMH(){
+  // Mostra limites/descritivo
+  const { pvLimit, pvBase } = (function(){ const s = SUBCATEGORIAS.find(x=>x.id===state.subcatId)||{}; 
+    // mesma heurística do engine
+    let limit = 8, base=3;
+    for (const k of ['pvLimite','pv_limit','pvLimit','limite','limit','pvMax','pv_max']) if (k in s){ limit = s[k]; break; }
+    for (const k of ['pvBase','pv_base','base','pvDefault','pv_default']) if (k in s){ base = s[k]; break; }
+    if ('pvLimitDelta' in s) limit += s.pvLimitDelta||0;
+    if ('pvCurrentDelta' in s) base += s.pvCurrentDelta||0;
+    return { pvLimit: limit, pvBase: base };
+  })();
+  $('#subcatInfo').textContent = `Base: ${pvBase} PV · Limite: ${pvLimit} PV · Ativação (+${activationBonus(state.activation)} PV)`;
 
-  redutoresMH.innerHTML = (state.manifest.redutores || []).map((r, i) => `
-    <div class="tag">
-      <div><b>${r.nome}</b></div>
-      ${typeof r._pv === 'number' ? `<div class="ok">${r._pv} PV</div>` : ''}
-      <div class="x" data-k="redutores" data-i="${i}">×</div>
-    </div>
-  `).join('');
+  const r = calcManifestacao({
+    categoriaId: state.categoriaId,
+    subcatId: state.subcatId,
+    activation: state.activation,
+    efeitos: state.efeitos,
+    redutores: state.redutores,
+    restricoes: state.restricoes,
+    affinities: state.affinities
+  });
 
-  [...efeitosMH.querySelectorAll('.x'), ...redutoresMH.querySelectorAll('.x')].forEach(btn => {
-    btn.addEventListener('click', () => {
-      const arr = btn.dataset.k === 'efeitos' ? state.manifest.efeitos : state.manifest.redutores;
-      const i = +btn.dataset.i;
-      arr.splice(i, 1);
-      renderAll();
+  $('#pvBase').textContent      = String(pvBase + activationBonus(state.activation));
+  $('#pvAtuais').textContent    = String(r.pvDisponiveis);
+  $('#pvLimite').textContent    = String(r.pvLimite);
+  $('#pvEfeitosMH').textContent = String(r.pvEmEfeitos);
+  $('#pvReduzidoMH').textContent= String(r.pvDeReducoes);
+  $('#pvLiquidoMH').textContent = String(r.saldo);
+  $('#pvWarn').innerHTML = r.ok ? '' : `<span class="bad">Você excedeu sua capacidade em ${r.pvEmEfeitos - r.capacidade} PV.</span>`;
+
+  // ★ -> mitigação exibida (visual apenas, não altera cálculo)
+  const totalStars = state.restricoes.reduce((acc, it) => acc + (it.stars||0), 0);
+  $('#totalStars').textContent = String(totalStars);
+  $('#affMit').textContent = `${totalStars} PA`;
+}
+
+// ==== Técnicas ====
+function renderTecnicaCard(t){
+  const card = el('div','saved-list item');
+  card.dataset.id = t._id;
+
+  const header = el('div','row');
+  const title = el('strong'); title.textContent = `${t.nome || 'Técnica'} — ${t.tipo} · Grau ${t.grau}`;
+  const meter = el('div','muted'); meter.style.marginLeft='auto';
+
+  const totals = el('div','muted mt8'); totals.textContent = '—';
+
+  // pickers internos
+  const cols = el('div','grid g3 mt8');
+
+  // Efeitos
+  const colE = el('div');
+  colE.append(Object.assign(el('label','lbl'),{textContent:'Adicionar Efeito'}));
+  const gSel = el('select'); // grupo opcional
+  const grupos = Array.from(new Set(EFEITOS.map(e => e.grupo||e.group||'outros'))); 
+  gSel.append(option('', '(todos)')); grupos.forEach(g=>gSel.append(option(g,g)));
+  const eSel = el('select'); const fill = () => {
+    const g = gSel.value;
+    eSel.innerHTML='';
+    const list = g ? EFEITOS.filter(e => (e.grupo||e.group)===g) : EFEITOS;
+    list.forEach(e => eSel.append(option(e.id, `[${e.grupo||e.group||'—'}] ${e.nome||e.name}`)));
+  }; fill();
+  gSel.addEventListener('change', fill);
+  const addE = el('button','btn'); addE.textContent = 'Adicionar';
+  addE.addEventListener('click', () => {
+    const id = eSel.value; const e = EFEITOS.find(x=>x.id==id); if (!e) return;
+    const inst = {...e, params: defaultParamsFromSpec(e.paramsSpec), tecnica:{tipo:t.tipo, grau:t.grau}};
+    t.efeitos.push(inst);
+    addRemovableTag(listE, inst, { emManifestacao:false, subcatId: state.subcatId }, () => {
+      const i = t.efeitos.indexOf(inst); if (i>=0) t.efeitos.splice(i,1); recalcTecnicaCard(t, totals, meter);
     });
+    recalcTecnicaCard(t, totals, meter);
+  });
+  const listE = el('div','tag-list mt6');
+  colE.append(gSel,eSel,addE,listE);
+
+  // Restrições
+  const colR = el('div');
+  colR.append(Object.assign(el('label','lbl'),{textContent:'Adicionar Restrição'}));
+  const rSel = el('select'); RESTRICOES.forEach(r=>rSel.append(option(r.id, r.nome||r.name)));
+  const addR = el('button','btn'); addR.textContent='Adicionar';
+  addR.addEventListener('click', () => {
+    const id = rSel.value; const r = RESTRICOES.find(x=>x.id==id); if (!r) return;
+    const inst = {...r, params: defaultParamsFromSpec(r.paramsSpec), tecnica:{tipo:t.tipo, grau:t.grau}};
+    t.restricoes.push(inst);
+    addRemovableTag(listR, inst, { emManifestacao:false, subcatId: state.subcatId }, () => {
+      const i = t.restricoes.indexOf(inst); if (i>=0) t.restricoes.splice(i,1); recalcTecnicaCard(t, totals, meter);
+    });
+    recalcTecnicaCard(t, totals, meter);
+  });
+  const listR = el('div','tag-list mt6');
+  colR.append(rSel,addR,listR);
+
+  // Redutores
+  const colD = el('div');
+  colD.append(Object.assign(el('label','lbl'),{textContent:'Adicionar Redutor'}));
+  const dSel = el('select'); REDUTORES.forEach(r=>dSel.append(option(r.id, r.nome||r.name)));
+  const addD = el('button','btn'); addD.textContent='Adicionar';
+  addD.addEventListener('click', () => {
+    const id = dSel.value; const r = REDUTORES.find(x=>x.id==id); if (!r) return;
+    const inst = {...r, params: defaultParamsFromSpec(r.paramsSpec), tecnica:{tipo:t.tipo, grau:t.grau}};
+    t.redutores.push(inst);
+    addRemovableTag(listD, inst, { emManifestacao:false, subcatId: state.subcatId }, () => {
+      const i = t.redutores.indexOf(inst); if (i>=0) t.redutores.splice(i,1); recalcTecnicaCard(t, totals, meter);
+    });
+    recalcTecnicaCard(t, totals, meter);
+  });
+  const listD = el('div','tag-list mt6');
+  colD.append(dSel,addD,listD);
+
+  cols.append(colE,colR,colD);
+  card.append(header, totals, cols);
+
+  function recalcTecnicaCardLocal(){
+    recalcTecnicaCard(t, totals, meter);
+  }
+  // Header controls
+  const del = el('button','btn outline'); del.textContent='Remover'; del.style.marginLeft='8px';
+  del.addEventListener('click', () => {
+    card.remove();
+    const idx = state.tecnicas.findIndex(x=>x._id===t._id);
+    if (idx>=0) state.tecnicas.splice(idx,1);
+    recalcTodasTecnicas();
+  });
+  header.append(title, del, meter);
+  recalcTecnicaCardLocal();
+  return card;
+}
+
+function recalcTecnicaCard(t, totalsEl, meterEl){
+  const res = calcTecnica(t);
+  totalsEl.textContent = `Efeitos: ${res.paEfeitos} PA · Reduções: ${res.paReduc} PA · Total: ${res.total} / Máx ${res.paMax}`;
+  meterEl.innerHTML = res.ok ? '<span class="ok">OK</span>' : `<span class="bad">Fora do limite (1–${res.paMax})</span>`;
+}
+
+function recalcTodasTecnicas(){
+  let cComum=0, cAux=0;
+  for (const t of state.tecnicas){ if (t.tipo==='aux') cAux++; else cComum++; }
+  $('#countComum').textContent = String(cComum);
+  $('#countAux').textContent   = String(cAux);
+}
+
+function bindTecnicas(){
+  $('#addTech').addEventListener('click', () => {
+    const tipo = $('#techType').value;
+    const grau = clamp(parseInt($('#techGrau').value,10),1,6);
+    const nome = $('#techNome').value.trim() || 'Técnica';
+    const t = { _id: uid(), tipo, grau, nome, efeitos:[], restricoes:[], redutores:[] };
+    state.tecnicas.push(t);
+    const card = renderTecnicaCard(t);
+    $('#techList').prepend(card);
+    recalcTodasTecnicas();
   });
 }
 
-function renderAll() {
-  if (state.affinitiesMode === 'manual') renderAffinityEditor();
-  renderSubcatInfo();
-  renderRestricoes();
-  renderEffRedLists();
-  renderPV();
+// ==== Exportar / Importar ====
+function bindExport(){
+  $('#exportJson').addEventListener('click', () => {
+    const data = {
+      categoriaId: state.categoriaId,
+      affMode: state.affMode,
+      affinities: state.affinities,
+      subcatId: state.subcatId,
+      activation: state.activation,
+      efeitos: state.efeitos.map(stripRuntime),
+      redutores: state.redutores.map(stripRuntime),
+      restricoes: state.restricoes.map(stripRuntime),
+      tecnicas: state.tecnicas.map(t => ({ ...t, efeitos:t.efeitos.map(stripRuntime), restricoes:t.restricoes.map(stripRuntime), redutores:t.redutores.map(stripRuntime) }))
+    };
+    const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'hunter-legacy.json';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  });
+
+  $('#importFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try{
+      const txt = await file.text();
+      const data = JSON.parse(txt);
+      // carrega
+      Object.assign(state, {
+        categoriaId: data.categoriaId ?? state.categoriaId,
+        affMode: data.affMode ?? 'auto',
+        affinities: data.affinities ?? null,
+        subcatId: data.subcatId ?? state.subcatId,
+        activation: data.activation ?? state.activation
+      });
+      state.efeitos = (data.efeitos||[]);
+      state.redutores = (data.redutores||[]);
+      state.restricoes = (data.restricoes||[]);
+      state.tecnicas = (data.tecnicas||[]).map(t => ({...t, _id: uid()}));
+      // redesenha MH lists
+      $('#efeitosMH').innerHTML=''; state.efeitos.forEach(e => addRemovableTag($('#efeitosMH'), e, { emManifestacao:true, subcatId: state.subcatId }, null));
+      $('#restricoesLista').innerHTML=''; state.restricoes.forEach(r => addRemovableTag($('#restricoesLista'), r, { emManifestacao:true, subcatId: state.subcatId }, null));
+      $('#redutoresMH').innerHTML=''; state.redutores.forEach(d => addRemovableTag($('#redutoresMH'), d, { emManifestacao:true, subcatId: state.subcatId }, null));
+      // redesenha técnicas
+      $('#techList').innerHTML='';
+      state.tecnicas.forEach(t => $('#techList').append(renderTecnicaCard(t)));
+      recalcTodasTecnicas();
+      recalcMH();
+    }catch(err){
+      alert('Falha ao importar: ' + err.message);
+    } finally {
+      e.target.value = '';
+    }
+  });
 }
+
+function stripRuntime(it){
+  const { _id, tecnica, ...rest } = it || {};
+  return rest;
+}
+
+// Boot
+function boot(){
+  mountCategorias();
+  mountSubcats();
+  mountEffectGroup();
+  mountResRedPickers();
+  bindMH();
+  bindTecnicas();
+  bindExport();
+  recalcMH();
+}
+
+document.addEventListener('DOMContentLoaded', boot);
