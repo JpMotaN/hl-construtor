@@ -19,21 +19,9 @@
     <section class="card">
       <h2>1) Categoria Principal &amp; Afinidades</h2>
 
-      <div id="catRadios" class="chip-row mt6"></div>
+      <div><label class="lbl">Categoria Principal</label><select id="catSelect"></select></div>
 
-      <div class="row mt12">
-        <label class="chip">
-          <input type="radio" name="affMode" value="auto" checked />
-          Automático
-        </label>
-        <label class="chip">
-          <input type="radio" name="affMode" value="manual" />
-          Manual
-        </label>
-        <div class="muted ml8">No modo automático, as afinidades seguem a categoria escolhida.</div>
-      </div>
-
-      <div id="affinityEditor" class="mt12 hidden">
+      <div class="mt12"><label class="lbl">Modo de Afinidades</label><select id="affModeSelect"><option value="auto">Automático</option><option value="manual">Manual</option></select><div class="muted mt4">No modo automático, as afinidades seguem a categoria escolhida.</div></div><div id="affinityEditor" class="mt12 hidden">
         <div id="affinityGrid" class="grid g3"></div>
       </div>
     </section>
@@ -111,6 +99,7 @@
             <select id="restricaoPicker"></select>
             <button class="btn" id="addRestricao">Adicionar</button>
           </div>
+          <div id="restricaoPreview" class="muted mt6"></div>
           <div class="muted mt6">Mitigação por ★:
             <b id="totalStars">0</b> ★ = <b id="affMit">0 PA</b>
           </div>
@@ -139,6 +128,7 @@
             <select id="redutorPicker"></select>
             <button class="btn" id="addRedutor">Adicionar</button>
           </div>
+          <div id="redutorPreview" class="muted mt6"></div>
           <div id="redutoresMH" class="tag-list mt6"></div>
         </div>
       </div>
@@ -162,12 +152,15 @@
           <select id="techType">
             <option value="comum">Comum</option>
             <option value="aux">Auxiliar</option>
+            <option value="inata">Inata</option>
+            <option value="exclusiva">Exclusiva</option>
           </select>
         </div>
         <div>
           <label class="lbl">Grau</label>
           <select id="techGrau">
             <option value="1">1º</option>
+            <option value="7">7º</option>
             <option value="2">2º</option>
             <option value="3">3º</option>
             <option value="4">4º</option>
